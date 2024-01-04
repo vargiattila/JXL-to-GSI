@@ -1,11 +1,29 @@
+"""
+    JXL2GSI
+
+    Convert Converts Trimble JobXML (.jxl extension) file to Leica GSI file format
+
+    Usage: python JXL2GSI.py input_jxl_file
+
+    Thr output GSI file has the same name and path as the input file
+"""
+import sys
+import os
 import xml.etree.ElementTree as ET
 import pandas as pd
-import sys
-import math
-import os
 
+if len(sys.argv) != 2:
+    print(f"Usage: python {sys.argv[0]} jxl_file")
+    sys.exit(1)
 ## Opening JXL/XML file
-tree = ET.parse(sys.argv[1])
+try:
+    tree = ET.parse(sys.argv[1])
+except FileNotFoundError:
+    print(f"Input file ({sys.argv[1]}) not found")
+    sys.exit(2)
+except ET.ParseError:
+    print(f"Is it ({sys.argv[1]}) an JOBXML file?")
+    sys.exit(3)
 root = tree.getroot()
 
 data_point = []
@@ -30,6 +48,9 @@ for point_record in root.findall('.//PointRecord'):
         'East': point_record.find('ComputedGrid/East').text if point_record.find('ComputedGrid/East') is not None else '',
         'Elevation': point_record.find('ComputedGrid/Elevation').text if point_record.find('ComputedGrid/Elevation') is not None else '',
     })
+if len(data_point) == 0:
+    print(f"No point records in {sys.argv[1]}")
+    sys.exit(4)
 df_point = pd.DataFrame(data_point)
 
 ##Extracting STATION measurments data
@@ -40,6 +61,9 @@ for station_record in root.findall('.//StationRecord'):
         'StationName': station_record.find('StationName').text,
         'InstrumentHeight': station_record.find('RawTheodoliteHeight/MeasuredHeight').text if station_record.find('RawTheodoliteHeight/MeasuredHeight') is not None else '',
     })
+if len(data_station) == 0:
+    print(f"No station records in {sys.argv[1]}")
+    sys.exit(4)
 df_station = pd.DataFrame(data_station)
 df_station=df_station.sort_values(by=['StationName','TimeStamp'],ascending=[False,False])
 df_station=df_station.drop_duplicates(subset=['StationName'],ignore_index=True)
@@ -53,6 +77,9 @@ for target_record in root.findall('.//TargetRecord'):
         'TimeStamp': target_record.get('TimeStamp'),
         'TargetHeight': target_record.find('TargetHeight').text if target_record.find('TargetHeight') is not None else '',
     })
+if len(data_target) == 0:
+    print(f"No target records in {sys.argv[1]}")
+    sys.exit(4)
 df_target = pd.DataFrame(data_target)
 df_target['TargetHeight'] = pd.to_numeric(df_target['TargetHeight']).round(3)
 
@@ -88,13 +115,13 @@ df_merged['PPM']=(J-((N*df_merged['Pressure'])/(273.16+df_merged['Temperature'])
 df_merged['EDMDistanceCorr']=df_merged['EDMDistance']+(df_merged['EDMDistance']*df_merged['PPM']*0.000001)+df_merged['PrismConstant']
 
 ##Converting 2nd face direction measurements to the 1st face
-mask1 = ((df_merged['Face'] == 'Face2') & 
+mask1 = ((df_merged['Face'] == 'Face2') &
         (df_merged['VerticalCircle'] > 180))
 
-mask2 = ((df_merged['Face'] == 'Face2') & 
+mask2 = ((df_merged['Face'] == 'Face2') &
         (df_merged['HorizontalCircle'] < 180))
-        
-mask3 = ((df_merged['Face'] == 'Face2') & 
+
+mask3 = ((df_merged['Face'] == 'Face2') &
         (df_merged['HorizontalCircle'] > 180))
 
 df_merged.loc[mask2, 'HorizontalCircle'] = df_merged['HorizontalCircle'] + 180
@@ -153,7 +180,7 @@ average_readin['North'] = average_readin['North'].str.replace('.','',regex=False
 average_readin['Elevation'] = average_readin['Elevation'].astype(str).apply(lambda x: '{:.3f}'.format(float(x)))
 average_readin['Elevation'] = average_readin['Elevation'].str.replace('.','',regex=False)
 average_readin['TargetHeight'] = average_readin['TargetHeight'].astype(str).apply(lambda x: '{:.3f}'.format(float(x)))
-average_readin['TargetHeight'] = average_readin['TargetHeight'].str.replace('.','',regex=False)  
+average_readin['TargetHeight'] = average_readin['TargetHeight'].str.replace('.','',regex=False)
 average_readin['HorizontalCircle'] = average_readin['HorizontalCircle'].astype(str).apply(lambda x: '{:.4f}'.format(float(x)))
 average_readin['HorizontalCircle'] = average_readin['HorizontalCircle'].str.replace('.','',regex=False)
 average_readin['VerticalCircle'] = average_readin['VerticalCircle'].astype(str).apply(lambda x: '{:.4f}'.format(float(x)))
@@ -194,6 +221,6 @@ file_name = os.path.basename(sys.argv[1])
 file_name = os.path.splitext(file_name)[0]
 file_name = file_name + ".gsi"
 
-with open(file_name, 'w') as file:
+with open(file_name, 'w', encoding='ascii') as file:
     for item in gsi_measurements_row:
         file.write(str(item))
